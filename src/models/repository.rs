@@ -49,6 +49,12 @@ impl TaskRepository {
         let mut m = self.inner.write();
         m.remove(id).is_some()
     }
+
+    /// Return the number of tasks currently stored.
+    pub fn count(&self) -> usize {
+        let m = self.inner.read();
+        m.len()
+    }
 }
 
 impl Default for TaskRepository {

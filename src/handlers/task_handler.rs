@@ -95,4 +95,11 @@ pub async fn delete_task(
     }
 }
 
+/// Count tasks: GET /tasks/count
+pub async fn count_tasks(State(repo): State<AppState>) -> Json<serde_json::Value> {
+    log_info("count_tasks called");
+    let n = repo.count();
+    Json(json!({"count": n}))
+}
+
 // unit tests moved to `tests/handler_tests.rs` as integration tests
