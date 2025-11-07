@@ -55,6 +55,18 @@ impl TaskRepository {
         let m = self.inner.read();
         m.len()
     }
+
+    /// Remove multiple tasks by id. Returns the number of tasks removed.
+    pub fn remove_many(&self, ids: &[Uuid]) -> usize {
+        let mut m = self.inner.write();
+        let mut removed = 0usize;
+        for id in ids {
+            if m.remove(id).is_some() {
+                removed += 1;
+            }
+        }
+        removed
+    }
 }
 
 impl Default for TaskRepository {
