@@ -1,11 +1,10 @@
 //! HTTP handlers for Task endpoints.
 //!
-//! This file is intentionally verbose to include multiple small helper functions
-//! and unit tests to meet test count and lines requirement for the initial commit.
+//! This file includes handlers and small helpers used by integration tests.
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use serde_json::json;
@@ -14,6 +13,7 @@ use uuid::Uuid;
 use crate::models::repository::TaskRepository;
 use crate::models::task::{Task, TaskCreate, TaskUpdate};
 use crate::utils::logger::log_info;
+use serde::Deserialize;
 
 type AppState = TaskRepository;
 
@@ -28,16 +28,29 @@ pub async fn create_task(
     (StatusCode::CREATED, Json(task))
 }
 
+/// Query params for GET /tasks
+#[derive(Debug, Deserialize)]
+pub struct FilterParams {
+    pub completed: Option<bool>,
+}
+
 /// List tasks: GET /tasks
-pub async fn get_tasks(State(repo): State<AppState>) -> Json<Vec<Task>> {
-    log_info("get_tasks called");
+pub async fn get_tasks(
+    State(repo): State<AppState>,
+    Query(params): Query<FilterParams>,
+) -> Json<Vec<Task>> {
+    log_info(&format!("get_tasks called filter={:?}", params));
     let mut all = repo.list();
+    // apply completed filter if present
+    if let Some(completed_val) = params.completed {
+        all.retain(|t| t.completed == completed_val);
+    }
     // sort by title to keep response stable (easier testing)
     all.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
     Json(all)
 }
 
-/// Get a task by id: GET /tasks/:id
+/// Get a task by id: GET /tasks/{id}
 pub async fn get_task(
     Path(id): Path<String>,
     State(repo): State<AppState>,
@@ -55,7 +68,7 @@ pub async fn get_task(
     }
 }
 
-/// Update a task: PUT /tasks/:id
+/// Update a task: PUT /tasks/{id}
 pub async fn update_task(
     Path(id): Path<String>,
     State(repo): State<AppState>,
@@ -74,7 +87,7 @@ pub async fn update_task(
     }
 }
 
-/// Delete a task: DELETE /tasks/:id
+/// Delete a task: DELETE /tasks/{id}
 pub async fn delete_task(
     Path(id): Path<String>,
     State(repo): State<AppState>,
