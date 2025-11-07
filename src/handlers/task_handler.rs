@@ -102,4 +102,30 @@ pub async fn count_tasks(State(repo): State<AppState>) -> Json<serde_json::Value
     Json(json!({"count": n}))
 }
 
+/// Bulk delete tasks: DELETE /tasks
+/// Accepts a JSON array of UUID strings and removes any matching tasks.
+/// Returns JSON {"deleted": N} where N is the number of tasks deleted.
+pub async fn bulk_delete_tasks(
+    State(repo): State<AppState>,
+    Json(payload): Json<Vec<String>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    log_info("bulk_delete_tasks called");
+
+    // parse valid UUIDs, ignore invalid entries
+    let mut ids = Vec::with_capacity(payload.len());
+    for s in payload.iter() {
+        if let Ok(u) = Uuid::parse_str(s) {
+            ids.push(u);
+        }
+    }
+
+    let removed = if ids.is_empty() {
+        0
+    } else {
+        repo.remove_many(&ids)
+    };
+
+    (StatusCode::OK, Json(json!({"deleted": removed})))
+}
+
 // unit tests moved to `tests/handler_tests.rs` as integration tests
