@@ -42,6 +42,24 @@ The API exposes the following routes (when the server is listening):
 
 - `POST /tasks` — create a task (JSON payload: { "title": "...", "description": "..." })
 - `GET /tasks` — list tasks
+
+List query parameters (GET /tasks)
+
+- `completed` (optional) — filter by completion status. Use `?completed=true` or `?completed=false`.
+- `page` (optional) — 1-based page number for pagination. Default: `1`.
+- `per_page` (optional) — number of items per page. Default: `20`, capped at `100`.
+- `sort` (optional) — sorting key. Supported: `created_at`, or `created_at:asc` / `created_at:desc` (default asc).
+
+The `GET /tasks` response now returns a JSON object with metadata, for example:
+
+```json
+{
+	"items": [ /* array of task objects */ ],
+	"total": 123,
+	"page": 1,
+	"per_page": 20
+}
+```
 - `GET /tasks/{id}` — get a single task
 - `PUT /tasks/{id}` — update a task (partial fields allowed)
 - `DELETE /tasks/{id}` — delete a task
@@ -54,6 +72,15 @@ curl -X POST http://127.0.0.1:8080/tasks -H "Content-Type: application/json" -d 
 
 # list
 curl http://127.0.0.1:8080/tasks
+
+# list only completed tasks
+curl "http://127.0.0.1:8080/tasks?completed=true"
+
+# paginated list, page 2, 10 items per page
+curl "http://127.0.0.1:8080/tasks?page=2&per_page=10"
+
+# sorted by created_at descending
+curl "http://127.0.0.1:8080/tasks?sort=created_at:desc"
 
 # get
 curl http://127.0.0.1:8080/tasks/<uuid>

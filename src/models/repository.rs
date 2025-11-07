@@ -35,6 +35,17 @@ impl TaskRepository {
         m.values().cloned().collect()
     }
 
+    /// Return tasks sorted by `created_at`. If `desc` is true, newest first.
+    pub fn list_sorted_by_created_at(&self, desc: bool) -> Vec<Task> {
+        let mut items = self.list();
+        if desc {
+            items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        } else {
+            items.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        }
+        items
+    }
+
     pub fn update(&self, id: &Uuid, upd: TaskUpdate) -> Option<Task> {
         let mut m = self.inner.write();
         if let Some(t) = m.get_mut(id) {
