@@ -30,24 +30,60 @@ pub async fn create_task(
 
 /// Query params for GET /tasks
 #[derive(Debug, Deserialize)]
-pub struct FilterParams {
+pub struct ListParams {
     pub completed: Option<bool>,
+    pub page: Option<usize>,
+    pub per_page: Option<usize>,
+    pub sort: Option<String>,
 }
 
 /// List tasks: GET /tasks
+/// Supports optional filters: completed, pagination (page, per_page), and sorting (sort=created_at[:asc|:desc]).
 pub async fn get_tasks(
     State(repo): State<AppState>,
-    Query(params): Query<FilterParams>,
-) -> Json<Vec<Task>> {
-    log_info(&format!("get_tasks called filter={:?}", params));
-    let mut all = repo.list();
+    Query(params): Query<ListParams>,
+) -> Json<serde_json::Value> {
+    log_info(&format!("get_tasks called params={:?}", params));
+
+    // defaults and validation
+    let page = params.page.unwrap_or(1).max(1);
+    let per_page_requested = params.per_page.unwrap_or(20).max(1);
+    let per_page_cap = 100usize;
+    let per_page = per_page_requested.min(per_page_cap);
+
+    // determine sort order
+    let mut desc = false;
+    if let Some(s) = params.sort.as_deref() {
+        // accept "created_at" or "created_at:asc"/":desc"
+        if s.starts_with("created_at") && s.ends_with(":desc") {
+            desc = true;
+        }
+    }
+
+    // get sorted list by created_at (server-side sort)
+    let mut items = repo.list_sorted_by_created_at(desc);
+
     // apply completed filter if present
     if let Some(completed_val) = params.completed {
-        all.retain(|t| t.completed == completed_val);
+        items.retain(|t| t.completed == completed_val);
     }
-    // sort by title to keep response stable (easier testing)
-    all.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-    Json(all)
+
+    let total = items.len();
+    // pagination: page is 1-based
+    let start = per_page * (page.saturating_sub(1));
+    let end = usize::min(start + per_page, total);
+    let page_items = if start >= total {
+        Vec::new()
+    } else {
+        items[start..end].to_vec()
+    };
+
+    Json(json!({
+        "items": page_items,
+        "total": total,
+        "page": page,
+        "per_page": per_page
+    }))
 }
 
 /// Get a task by id: GET /tasks/{id}
