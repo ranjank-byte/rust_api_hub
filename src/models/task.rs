@@ -25,6 +25,17 @@ pub struct TaskCreate {
     pub description: String,
 }
 
+impl TaskCreate {
+    /// Basic validation for creation DTOs.
+    /// Returns Err with a short message if invalid.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.title.trim().is_empty() {
+            return Err("title must not be empty".into());
+        }
+        Ok(())
+    }
+}
+
 /// Input DTO for task updates
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TaskUpdate {
