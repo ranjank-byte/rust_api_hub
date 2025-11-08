@@ -2,11 +2,13 @@
 //!
 //! This file includes handlers and small helpers used by integration tests.
 
+use axum::body::Bytes;
 use axum::{
     Json,
     extract::{Path, Query, State},
     http::StatusCode,
 };
+use csv::ReaderBuilder;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -175,6 +177,63 @@ pub async fn bulk_delete_tasks(
     };
 
     (StatusCode::OK, Json(json!({"deleted": removed})))
+}
+
+/// Import tasks from a JSON array POST /tasks/import (application/json)
+pub async fn import_tasks_json(
+    State(repo): State<AppState>,
+    Json(payload): Json<Vec<TaskCreate>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    log_info(&format!(
+        "import_tasks_json called payload_len={}",
+        payload.len()
+    ));
+    let created = repo.insert_many(&payload);
+    (
+        StatusCode::CREATED,
+        Json(json!({"imported": created.len(), "tasks": created})),
+    )
+}
+
+/// Import tasks from CSV POST /tasks/import/csv (text/csv)
+/// Expects header row with `title,description` and optional additional columns ignored by the CSV deserializer.
+pub async fn import_tasks_csv(
+    State(repo): State<AppState>,
+    body: Bytes,
+) -> (StatusCode, Json<serde_json::Value>) {
+    log_info("import_tasks_csv called");
+    let s = match std::str::from_utf8(&body) {
+        Ok(v) => v,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "invalid utf8 in body"})),
+            );
+        }
+    };
+
+    let mut reader = ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(s.as_bytes());
+
+    let mut creates: Vec<TaskCreate> = Vec::new();
+    for result in reader.deserialize::<TaskCreate>() {
+        match result {
+            Ok(tc) => creates.push(tc),
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("csv parse error: {}", e)})),
+                );
+            }
+        }
+    }
+
+    let created = repo.insert_many(&creates);
+    (
+        StatusCode::CREATED,
+        Json(json!({"imported": created.len(), "tasks": created})),
+    )
 }
 
 // unit tests moved to `tests/handler_tests.rs` as integration tests

@@ -1,6 +1,7 @@
 //! In-memory task repository.
 //! Uses `parking_lot::RwLock` for simple concurrency (faster and smaller than std::sync).
 
+use crate::models::task::TaskCreate;
 use crate::models::task::{Task, TaskUpdate};
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -77,6 +78,18 @@ impl TaskRepository {
             }
         }
         removed
+    }
+
+    /// Insert many TaskCreate objects and return the created Task objects.
+    pub fn insert_many(&self, creates: &[TaskCreate]) -> Vec<Task> {
+        let mut created = Vec::with_capacity(creates.len());
+        let mut m = self.inner.write();
+        for c in creates {
+            let t = Task::new_full(&c.title, &c.description);
+            m.insert(t.id, t.clone());
+            created.push(t);
+        }
+        created
     }
 }
 
