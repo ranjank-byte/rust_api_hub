@@ -64,6 +64,21 @@ The `GET /tasks` response now returns a JSON object with metadata, for example:
 - `PUT /tasks/{id}` — update a task (partial fields allowed)
 - `DELETE /tasks/{id}` — delete a task
 
+- `POST /tasks/import` — import tasks from a JSON array. Request body: `[{"title":"...","description":"..."}, ...]`.
+	- Response: `201 Created` with body `{ "imported": N, "tasks": [ /* created tasks */ ] }`.
+
+- `POST /tasks/import/csv` — import tasks from CSV body. Expects a header row with `title,description`.
+	- Content-Type: `text/csv` (or send raw body). Example CSV:
+
+```
+title,description
+task A,desc A
+task B,desc B
+```
+
+	- Response: `201 Created` with body `{ "imported": N, "tasks": [ /* created tasks */ ] }`.
+	- On parse errors or invalid UTF-8 the endpoint returns `400 Bad Request` with an error message.
+
 Example curl (when server is running):
 
 ```powershell
