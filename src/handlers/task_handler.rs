@@ -3,6 +3,7 @@
 //! This file includes handlers and small helpers used by integration tests.
 
 use axum::body::Bytes;
+use axum::http::HeaderMap;
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -233,6 +234,96 @@ pub async fn import_tasks_csv(
     (
         StatusCode::CREATED,
         Json(json!({"imported": created.len(), "tasks": created})),
+    )
+}
+
+/// Unified import: POST /tasks/import
+/// Accepts either `application/json` (array of TaskCreate) or `text/csv` (with header).
+/// Returns a partial-success summary: { imported, failed, errors, tasks } with 201.
+pub async fn import_tasks(
+    State(repo): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> (StatusCode, Json<serde_json::Value>) {
+    log_info("import_tasks called");
+
+    let ct = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let mut valid: Vec<TaskCreate> = Vec::new();
+    let mut errors: Vec<serde_json::Value> = Vec::new();
+
+    if ct.contains("json") || ct.is_empty() {
+        // try JSON
+        match serde_json::from_slice::<Vec<TaskCreate>>(&body) {
+            Ok(items) => {
+                for (i, it) in items.into_iter().enumerate() {
+                    match it.validate() {
+                        Ok(_) => valid.push(it),
+                        Err(e) => errors.push(json!({"index": i, "error": e})),
+                    }
+                }
+            }
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": format!("json parse error: {}", e)})),
+                );
+            }
+        }
+    } else if ct.contains("csv") {
+        // CSV path
+        let s = match std::str::from_utf8(&body) {
+            Ok(v) => v,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "invalid utf8 in body"})),
+                );
+            }
+        };
+
+        let mut reader = ReaderBuilder::new()
+            .has_headers(true)
+            .from_reader(s.as_bytes());
+        for (i, dec) in reader.deserialize::<TaskCreate>().enumerate() {
+            match dec {
+                Ok(tc) => match tc.validate() {
+                    Ok(_) => valid.push(tc),
+                    Err(e) => errors.push(json!({"row": i + 1, "error": e})),
+                },
+                Err(e) => {
+                    errors.push(json!({"row": i + 1, "error": format!("csv parse error: {}", e)}))
+                }
+            }
+        }
+    } else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "unsupported content-type"})),
+        );
+    }
+
+    // persist valid rows
+    let created = if valid.is_empty() {
+        Vec::new()
+    } else {
+        repo.insert_many(&valid)
+    };
+
+    let imported = created.len();
+    let failed = errors.len();
+
+    (
+        StatusCode::CREATED,
+        Json(json!({
+            "imported": imported,
+            "failed": failed,
+            "errors": errors,
+            "tasks": created
+        })),
     )
 }
 
