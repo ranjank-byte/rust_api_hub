@@ -16,6 +16,9 @@ pub struct Task {
     pub created_at: DateTime<Utc>,
     /// Timestamp of the most recent update to this task.
     pub updated_at: DateTime<Utc>,
+    /// Optional labels for grouping and filtering.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Input DTO for task creation
@@ -55,6 +58,7 @@ impl Task {
             completed: false,
             created_at: now,
             updated_at: now,
+            tags: Vec::new(),
         }
     }
 
@@ -83,8 +87,11 @@ impl Task {
             "completed": self.completed,
             "created_at": self.created_at.to_rfc3339(),
             "updated_at": self.updated_at.to_rfc3339(),
+            "tags": self.tags,
         })
     }
 }
+
+// Tag validation/normalization helpers used by tag endpoints live in handlers module.
 
 // unit tests moved to `tests/task_tests.rs` as integration tests
