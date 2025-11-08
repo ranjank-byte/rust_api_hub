@@ -10,7 +10,7 @@ pub mod tasks;
 
 use crate::handlers::task_handler::{
     bulk_delete_tasks, count_tasks, create_task, delete_task, get_task, get_tasks, import_tasks,
-    update_task,
+    import_tasks_file, update_task,
 };
 use crate::models::repository::TaskRepository;
 
@@ -22,6 +22,7 @@ pub fn create_router() -> Router<TaskRepository> {
             post(create_task).get(get_tasks).delete(bulk_delete_tasks),
         )
         .route("/tasks/import", post(import_tasks))
+        .route("/tasks/import/file", post(import_tasks_file))
         .route("/tasks/count", get(count_tasks))
         .route(
             "/tasks/{id}",

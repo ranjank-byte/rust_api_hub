@@ -80,6 +80,11 @@ The `GET /tasks` response now returns a JSON object with metadata, for example:
 
 	- On invalid payload (unparseable JSON or invalid UTF-8 CSV) the endpoint returns `400 Bad Request`.
 
+	- `POST /tasks/import/file` — upload a CSV file using multipart/form-data (field name `file`).
+		- Useful for browser-based or file-upload clients.
+		- The server enforces a maximum upload size (5 MB by default) and returns `413 Payload Too Large` if exceeded.
+		- The response mirrors the unified import format and reports partial successes: `{ imported, failed, errors, tasks }`.
+
 Example curl (when server is running):
 
 ```powershell
