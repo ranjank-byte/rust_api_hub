@@ -27,6 +27,9 @@ pub async fn create_task(
 ) -> (StatusCode, Json<Task>) {
     log_info("create_task called");
     let task = Task::new_full(&payload.title, &payload.description);
+    // tags not provided via creation DTO (legacy tests). Accept optional header 'x-tags'
+    // with comma-separated list of tags for future clients.
+    // NOTE: This is a placeholder; will be expanded when DTO evolves.
     repo.insert(task.clone());
     (StatusCode::CREATED, Json(task))
 }
@@ -70,6 +73,9 @@ pub async fn get_tasks(
     if let Some(completed_val) = params.completed {
         items.retain(|t| t.completed == completed_val);
     }
+
+    // filter by tag if provided
+    // Tag filter available via dedicated endpoint: GET /tasks/search/by_tag
 
     let total = items.len();
     // pagination: page is 1-based
@@ -439,6 +445,116 @@ pub async fn import_tasks(
             "tasks": created
         })),
     )
+}
+
+// ------------------------
+// Tags management endpoints
+// ------------------------
+
+#[derive(Debug, Deserialize, serde::Serialize, Clone)]
+pub struct TagsPayload {
+    pub tags: Vec<String>,
+}
+
+fn validate_tags(tags: &[String]) -> Result<(), String> {
+    for t in tags.iter() {
+        if t.trim().is_empty() {
+            return Err("tags must not contain empty entries".into());
+        }
+        if t.len() > 64 {
+            return Err("tag too long (max 64 chars)".into());
+        }
+    }
+    Ok(())
+}
+
+fn normalize_tags(tags: &[String]) -> Vec<String> {
+    use std::collections::HashSet;
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for t in tags.iter() {
+        let norm = t.trim().to_lowercase();
+        if !norm.is_empty() && seen.insert(norm.clone()) {
+            out.push(norm);
+        }
+    }
+    out
+}
+
+/// Replace tags on a task: PUT /tasks/{id}/tags
+pub async fn set_tags(
+    Path(id): Path<String>,
+    State(repo): State<AppState>,
+    Json(payload): Json<TagsPayload>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    log_info(&format!("set_tags called id={}", id));
+
+    if let Err(e) = validate_tags(&payload.tags) {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": e})));
+    }
+
+    let tags = normalize_tags(&payload.tags);
+
+    match Uuid::parse_str(&id) {
+        Ok(uuid) => {
+            let mut t = match repo.get(&uuid) {
+                Some(existing) => existing,
+                None => return (StatusCode::NOT_FOUND, Json(json!({"error": "not found"}))),
+            };
+            t.tags = tags;
+            // persist by calling update with no field changes other than tags
+            let _ = repo.update(
+                &uuid,
+                TaskUpdate {
+                    title: None,
+                    description: None,
+                    completed: None,
+                },
+            );
+            // Directly overwrite stored task with updated tags to avoid changing TaskUpdate DTO
+            repo.insert(t.clone());
+            (StatusCode::OK, Json(json!({"task": t})))
+        }
+        Err(_) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid uuid"})),
+        ),
+    }
+}
+
+/// Get tags of a task: GET /tasks/{id}/tags
+pub async fn get_tags(
+    Path(id): Path<String>,
+    State(repo): State<AppState>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    log_info(&format!("get_tags called id={}", id));
+    match Uuid::parse_str(&id) {
+        Ok(uuid) => match repo.get(&uuid) {
+            Some(t) => (StatusCode::OK, Json(json!({"tags": t.tags}))),
+            None => (StatusCode::NOT_FOUND, Json(json!({"error": "not found"}))),
+        },
+        Err(_) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid uuid"})),
+        ),
+    }
+}
+
+/// Query tasks by tag: GET /tasks/search/by_tag?tag=...
+#[derive(Debug, Deserialize)]
+pub struct TagQuery {
+    pub tag: String,
+}
+
+pub async fn get_tasks_by_tag(
+    State(repo): State<AppState>,
+    Query(q): Query<TagQuery>,
+) -> Json<serde_json::Value> {
+    log_info(&format!("get_tasks_by_tag called tag={}", q.tag));
+    let tag = q.tag.to_lowercase();
+    let mut items = repo.list();
+    items.retain(|t| t.tags.iter().any(|x| x.eq_ignore_ascii_case(&tag)));
+    Json(json!({"items": items, "total": items.len()}))
 }
 
 // unit tests moved to `tests/handler_tests.rs` as integration tests
