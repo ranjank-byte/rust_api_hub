@@ -237,6 +237,120 @@ pub async fn import_tasks_csv(
     )
 }
 
+/// Import tasks by uploading a multipart/form-data file (field name `file`).
+/// This is a simple, non-streaming parser: the entire request body is read into memory.
+/// It enforces a size limit to avoid OOM for very large uploads.
+pub async fn import_tasks_file(
+    State(repo): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> (StatusCode, Json<serde_json::Value>) {
+    log_info("import_tasks_file called");
+
+    const MAX_BYTES: usize = 5 * 1024 * 1024; // 5 MB
+    if body.len() > MAX_BYTES {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({"error": "payload too large"})),
+        );
+    }
+
+    // extract boundary from content-type
+    let ct = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let boundary = if let Some(idx) = ct.find("boundary=") {
+        &ct[idx + "boundary=".len()..]
+    } else {
+        ""
+    };
+
+    if !ct.contains("multipart/form-data") || boundary.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "expected multipart/form-data with boundary"})),
+        );
+    }
+
+    // crude split by boundary; each part begins with `--{boundary}`
+    let raw = match std::str::from_utf8(&body) {
+        Ok(s) => s,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "invalid utf8 in body"})),
+            );
+        }
+    };
+
+    let marker = format!("--{}", boundary.trim());
+    let parts: Vec<&str> = raw.split(&marker).collect();
+    let mut file_content_opt: Option<&str> = None;
+
+    for part in parts.iter() {
+        // skip preamble and epilogue
+        if part.trim().is_empty() || part.trim() == "--" {
+            continue;
+        }
+
+        // find Content-Disposition header with name="file"
+        if part.contains("name=\"file\"") {
+            // part looks like: \r\nContent-Disposition: form-data; name="file"; filename="..."\r\nContent-Type: text/csv\r\n\r\n<file-body>\r\n
+            if let Some(idx) = part.find("\r\n\r\n") {
+                let body_start = idx + 4;
+                let body_end = part.len();
+                let file_body = &part[body_start..body_end];
+                // strip trailing CRLF and possible ending --
+                let file_body = file_body.trim_end_matches('\r').trim_end_matches('\n');
+                file_content_opt = Some(file_body);
+                break;
+            }
+        }
+    }
+
+    let file_content = match file_content_opt {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "file part not found"})),
+            );
+        }
+    };
+
+    // parse CSV from file_content
+    let mut reader = ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(file_content.as_bytes());
+    let mut valid: Vec<TaskCreate> = Vec::new();
+    let mut errors: Vec<serde_json::Value> = Vec::new();
+    for (i, dec) in reader.deserialize::<TaskCreate>().enumerate() {
+        match dec {
+            Ok(tc) => match tc.validate() {
+                Ok(_) => valid.push(tc),
+                Err(e) => errors.push(json!({"row": i + 1, "error": e})),
+            },
+            Err(e) => {
+                errors.push(json!({"row": i + 1, "error": format!("csv parse error: {}", e)}))
+            }
+        }
+    }
+
+    let created = if valid.is_empty() {
+        Vec::new()
+    } else {
+        repo.insert_many(&valid)
+    };
+    let imported = created.len();
+    let failed = errors.len();
+
+    (
+        StatusCode::CREATED,
+        Json(json!({"imported": imported, "failed": failed, "errors": errors, "tasks": created})),
+    )
+}
 /// Unified import: POST /tasks/import
 /// Accepts either `application/json` (array of TaskCreate) or `text/csv` (with header).
 /// Returns a partial-success summary: { imported, failed, errors, tasks } with 201.
