@@ -64,6 +64,18 @@ The `GET /tasks` response now returns a JSON object with metadata, for example:
 - `PUT /tasks/{id}` — update a task (partial fields allowed)
 - `DELETE /tasks/{id}` — delete a task
 
+- `PUT /tasks/{id}/tags` — replace the tag set for a task (payload: `{ "tags": ["feature", "backend"] }`)
+- `GET /tasks/{id}/tags` — fetch the current tags for a task
+- `GET /tasks/search/by_tag?tag=...` — list tasks containing the tag (case-insensitive)
+
+- `GET /tasks/stats` — retrieve statistics about all tasks. Returns:
+	- `total` — total number of tasks
+	- `completed` — number of completed tasks
+	- `incomplete` — number of incomplete tasks
+	- `tag_distribution` — array of `{ tag, count }` objects for the top 10 most-used tags (sorted by count descending, then alphabetically)
+	- `oldest_created_at` — ISO 8601 timestamp of the oldest task (null if no tasks)
+	- `newest_created_at` — ISO 8601 timestamp of the newest task (null if no tasks)
+
 - `POST /tasks/import` — import tasks in bulk. Accepts either:
 	- `application/json` — a JSON array of TaskCreate objects: `[{"title":"...","description":"..."}, ...]`.
 	- `text/csv` — CSV body with header row containing `title,description`.
@@ -111,9 +123,38 @@ curl -X PUT http://127.0.0.1:8080/tasks/<uuid> -H "Content-Type: application/jso
 
 # delete
 curl -X DELETE http://127.0.0.1:8080/tasks/<uuid>
+
+# replace tags (normalized to lowercase, trimmed, deduplicated)
+curl -X PUT http://127.0.0.1:8080/tasks/<uuid>/tags \
+	-H "Content-Type: application/json" \
+	-d '{"tags":["Feature","backend","feature"]}'
+
+# get tags
+curl http://127.0.0.1:8080/tasks/<uuid>/tags
+
+# search by tag (case-insensitive)
+curl "http://127.0.0.1:8080/tasks/search/by_tag?tag=feature"
+
+# get statistics
+curl http://127.0.0.1:8080/tasks/stats
 ```
 
 ## Notes
 - Keep PRs small and test-driven.
 - Do not mix languages.
+
+## Tags
+
+- Each task now includes a `tags` array in its JSON representation.
+- Managing tags uses dedicated endpoints:
+	- `PUT /tasks/{id}/tags` to replace all tags for a task.
+	- `GET /tasks/{id}/tags` to view current tags.
+	- `GET /tasks/search/by_tag?tag=...` to retrieve tasks that include a given tag.
+- Validation rules:
+	- Tags are trimmed and lowercased.
+	- Empty/whitespace-only tags are rejected (400).
+	- Max tag length: 64 characters.
+	- Duplicates are removed case-insensitively.
+
+Backwards compatibility: Task creation/update DTOs are unchanged; tags are managed solely via the dedicated tags endpoints above.
 
