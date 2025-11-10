@@ -44,7 +44,7 @@ pub struct ListParams {
 }
 
 /// List tasks: GET /tasks
-/// Supports optional filters: completed, pagination (page, per_page), and sorting (sort=created_at[:asc|:desc]).
+/// Supports optional filters: completed, pagination (page, per_page), and sorting (sort=created_at[:asc|:desc] or sort=priority[:asc|:desc]).
 pub async fn get_tasks(
     State(repo): State<AppState>,
     Query(params): Query<ListParams>,
@@ -57,17 +57,31 @@ pub async fn get_tasks(
     let per_page_cap = 100usize;
     let per_page = per_page_requested.min(per_page_cap);
 
-    // determine sort order
-    let mut desc = false;
+    // determine sort field and order
+    let mut items = repo.list();
     if let Some(s) = params.sort.as_deref() {
-        // accept "created_at" or "created_at:asc"/":desc"
-        if s.starts_with("created_at") && s.ends_with(":desc") {
-            desc = true;
+        let desc = s.ends_with(":desc");
+        if s.starts_with("created_at") {
+            items.sort_by(|a, b| {
+                if desc {
+                    b.created_at.cmp(&a.created_at)
+                } else {
+                    a.created_at.cmp(&b.created_at)
+                }
+            });
+        } else if s.starts_with("priority") {
+            items.sort_by(|a, b| {
+                if desc {
+                    b.priority.sort_value().cmp(&a.priority.sort_value())
+                } else {
+                    a.priority.sort_value().cmp(&b.priority.sort_value())
+                }
+            });
         }
+    } else {
+        // default: sort by created_at ascending
+        items.sort_by(|a, b| a.created_at.cmp(&b.created_at));
     }
-
-    // get sorted list by created_at (server-side sort)
-    let mut items = repo.list_sorted_by_created_at(desc);
 
     // apply completed filter if present
     if let Some(completed_val) = params.completed {
@@ -608,6 +622,85 @@ pub async fn get_stats(State(repo): State<AppState>) -> Json<serde_json::Value> 
         "oldest_created_at": oldest_created,
         "newest_created_at": newest_created,
     }))
+}
+
+/// Payload for setting task priority
+#[derive(Debug, Deserialize)]
+pub struct PriorityPayload {
+    pub priority: String,
+}
+
+/// Set task priority: PUT /tasks/{id}/priority
+pub async fn set_priority(
+    Path(id): Path<String>,
+    State(repo): State<AppState>,
+    Json(payload): Json<PriorityPayload>,
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
+    let task_id =
+        Uuid::parse_str(&id).map_err(|_| (StatusCode::BAD_REQUEST, "invalid UUID".to_string()))?;
+
+    // Parse and validate priority
+    let priority = crate::models::task::Priority::parse(&payload.priority)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    // Get task, update priority field, and save back
+    let mut task = repo
+        .get(&task_id)
+        .ok_or((StatusCode::NOT_FOUND, "task not found".to_string()))?;
+
+    task.priority = priority;
+    task.updated_at = chrono::Utc::now();
+
+    // Use repository's insert to overwrite the task
+    repo.insert(task.clone());
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "id": task.id.to_string(),
+            "priority": task.priority,
+        })),
+    ))
+}
+
+/// Get task priority: GET /tasks/{id}/priority
+pub async fn get_priority(
+    Path(id): Path<String>,
+    State(repo): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let task_id =
+        Uuid::parse_str(&id).map_err(|_| (StatusCode::BAD_REQUEST, "invalid UUID".to_string()))?;
+
+    let task = repo
+        .get(&task_id)
+        .ok_or((StatusCode::NOT_FOUND, "task not found".to_string()))?;
+
+    Ok(Json(json!({
+        "id": task.id.to_string(),
+        "priority": task.priority,
+    })))
+}
+
+/// Search tasks by priority: GET /tasks/search/by_priority?priority=high
+pub async fn get_tasks_by_priority(
+    State(repo): State<AppState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Vec<Task>>, (StatusCode, String)> {
+    let priority_str = params.get("priority").ok_or((
+        StatusCode::BAD_REQUEST,
+        "missing 'priority' query parameter".to_string(),
+    ))?;
+
+    let priority = crate::models::task::Priority::parse(priority_str)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    let all_tasks = repo.list();
+    let filtered: Vec<Task> = all_tasks
+        .into_iter()
+        .filter(|t| t.priority == priority)
+        .collect();
+
+    Ok(Json(filtered))
 }
 
 // unit tests moved to `tests/handler_tests.rs` as integration tests
