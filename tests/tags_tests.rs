@@ -2,7 +2,6 @@ use axum::Json;
 use axum::extract::State;
 use rust_api_hub::models::repository::TaskRepository;
 use rust_api_hub::models::task::TaskCreate;
-use serde_json::json;
 
 fn repo() -> TaskRepository {
     TaskRepository::new()

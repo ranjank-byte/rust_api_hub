@@ -557,4 +557,57 @@ pub async fn get_tasks_by_tag(
     Json(json!({"items": items, "total": items.len()}))
 }
 
+// ------------------------
+// Task statistics/analytics
+// ------------------------
+
+/// Statistics summary: GET /tasks/stats
+/// Returns aggregated metrics about the task repository:
+/// - total, completed, incomplete counts
+/// - tag_distribution: top N tags with counts (sorted descending)
+/// - oldest_created_at, newest_created_at (ISO timestamps)
+pub async fn get_stats(State(repo): State<AppState>) -> Json<serde_json::Value> {
+    log_info("get_stats called");
+    let items = repo.list();
+    let total = items.len();
+    let completed = items.iter().filter(|t| t.completed).count();
+    let incomplete = total - completed;
+
+    // Build tag frequency map
+    use std::collections::HashMap;
+    let mut tag_counts: HashMap<String, usize> = HashMap::new();
+    for task in items.iter() {
+        for tag in task.tags.iter() {
+            *tag_counts.entry(tag.clone()).or_insert(0) += 1;
+        }
+    }
+
+    // Sort tags by frequency (descending), then alphabetically for ties
+    let mut tag_vec: Vec<(String, usize)> = tag_counts.into_iter().collect();
+    tag_vec.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    // Limit to top 10 tags
+    let top_tags: Vec<serde_json::Value> = tag_vec
+        .iter()
+        .take(10)
+        .map(|(tag, count)| json!({"tag": tag, "count": count}))
+        .collect();
+
+    // Find oldest and newest by created_at
+    let oldest_opt = items.iter().min_by_key(|t| t.created_at);
+    let newest_opt = items.iter().max_by_key(|t| t.created_at);
+
+    let oldest_created = oldest_opt.map(|t| t.created_at.to_rfc3339());
+    let newest_created = newest_opt.map(|t| t.created_at.to_rfc3339());
+
+    Json(json!({
+        "total": total,
+        "completed": completed,
+        "incomplete": incomplete,
+        "tag_distribution": top_tags,
+        "oldest_created_at": oldest_created,
+        "newest_created_at": newest_created,
+    }))
+}
+
 // unit tests moved to `tests/handler_tests.rs` as integration tests

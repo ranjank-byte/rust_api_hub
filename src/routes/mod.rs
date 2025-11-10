@@ -9,8 +9,8 @@ use axum::{
 pub mod tasks;
 
 use crate::handlers::task_handler::{
-    bulk_delete_tasks, count_tasks, create_task, delete_task, get_tags, get_task, get_tasks,
-    get_tasks_by_tag, import_tasks, import_tasks_file, set_tags, update_task,
+    bulk_delete_tasks, count_tasks, create_task, delete_task, get_stats, get_tags, get_task,
+    get_tasks, get_tasks_by_tag, import_tasks, import_tasks_file, set_tags, update_task,
 };
 use crate::models::repository::TaskRepository;
 
@@ -24,6 +24,7 @@ pub fn create_router() -> Router<TaskRepository> {
         .route("/tasks/import", post(import_tasks))
         .route("/tasks/import/file", post(import_tasks_file))
         .route("/tasks/count", get(count_tasks))
+        .route("/tasks/stats", get(get_stats))
         .route("/tasks/search/by_tag", get(get_tasks_by_tag))
         .route(
             "/tasks/{id}",
