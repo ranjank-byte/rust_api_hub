@@ -48,7 +48,8 @@ List query parameters (GET /tasks)
 - `completed` (optional) — filter by completion status. Use `?completed=true` or `?completed=false`.
 - `page` (optional) — 1-based page number for pagination. Default: `1`.
 - `per_page` (optional) — number of items per page. Default: `20`, capped at `100`.
-- `sort` (optional) — sorting key. Supported: `created_at`, or `created_at:asc` / `created_at:desc` (default asc).
+- `sort` (optional) — sorting key. Supported: `created_at` or `priority`, with optional `:asc` / `:desc` suffix (default asc).
+  - Examples: `?sort=created_at:desc`, `?sort=priority:asc`
 
 The `GET /tasks` response now returns a JSON object with metadata, for example:
 
@@ -67,6 +68,10 @@ The `GET /tasks` response now returns a JSON object with metadata, for example:
 - `PUT /tasks/{id}/tags` — replace the tag set for a task (payload: `{ "tags": ["feature", "backend"] }`)
 - `GET /tasks/{id}/tags` — fetch the current tags for a task
 - `GET /tasks/search/by_tag?tag=...` — list tasks containing the tag (case-insensitive)
+
+- `PUT /tasks/{id}/priority` — set task priority (payload: `{ "priority": "high" }`)
+- `GET /tasks/{id}/priority` — get task priority
+- `GET /tasks/search/by_priority?priority=...` — list tasks with specific priority (low, medium, high, critical)
 
 - `GET /tasks/stats` — retrieve statistics about all tasks. Returns:
 	- `total` — total number of tasks
@@ -115,6 +120,9 @@ curl "http://127.0.0.1:8080/tasks?page=2&per_page=10"
 # sorted by created_at descending
 curl "http://127.0.0.1:8080/tasks?sort=created_at:desc"
 
+# sorted by priority descending (critical first)
+curl "http://127.0.0.1:8080/tasks?sort=priority:desc"
+
 # get
 curl http://127.0.0.1:8080/tasks/<uuid>
 
@@ -134,6 +142,17 @@ curl http://127.0.0.1:8080/tasks/<uuid>/tags
 
 # search by tag (case-insensitive)
 curl "http://127.0.0.1:8080/tasks/search/by_tag?tag=feature"
+
+# set priority (case-insensitive: low, medium, high, critical)
+curl -X PUT http://127.0.0.1:8080/tasks/<uuid>/priority \
+	-H "Content-Type: application/json" \
+	-d '{"priority":"high"}'
+
+# get priority
+curl http://127.0.0.1:8080/tasks/<uuid>/priority
+
+# search by priority
+curl "http://127.0.0.1:8080/tasks/search/by_priority?priority=critical"
 
 # get statistics
 curl http://127.0.0.1:8080/tasks/stats
@@ -157,4 +176,23 @@ curl http://127.0.0.1:8080/tasks/stats
 	- Duplicates are removed case-insensitively.
 
 Backwards compatibility: Task creation/update DTOs are unchanged; tags are managed solely via the dedicated tags endpoints above.
+
+## Priority
+
+- Each task includes a `priority` field in its JSON representation.
+- Priority levels: `low`, `medium` (default), `high`, `critical`
+- Managing priorities:
+	- `PUT /tasks/{id}/priority` to set task priority (case-insensitive input)
+	- `GET /tasks/{id}/priority` to view current priority
+	- `GET /tasks/search/by_priority?priority=...` to filter tasks by priority level
+	- `GET /tasks?sort=priority:asc` or `sort=priority:desc` to sort tasks by priority
+- Validation rules:
+	- Only valid priority values accepted: `low`, `medium`, `high`, `critical`
+	- Case-insensitive parsing
+	- Invalid priority values return 400 Bad Request
+- New tasks default to `medium` priority
+- Priority sorting: low (1) < medium (2) < high (3) < critical (4)
+
+Backwards compatibility: Task creation/update DTOs are unchanged; priority is managed via dedicated priority endpoints.
+
 

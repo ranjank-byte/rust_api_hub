@@ -6,6 +6,43 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
+/// Task priority levels for prioritization and sorting.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Priority {
+    Low,
+    #[default]
+    Medium,
+    High,
+    Critical,
+}
+
+impl Priority {
+    /// Parse a priority from string (case-insensitive).
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s.trim().to_lowercase().as_str() {
+            "low" => Ok(Priority::Low),
+            "medium" => Ok(Priority::Medium),
+            "high" => Ok(Priority::High),
+            "critical" => Ok(Priority::Critical),
+            _ => Err(format!(
+                "invalid priority: '{}'. Valid values: low, medium, high, critical",
+                s
+            )),
+        }
+    }
+
+    /// Numeric value for sorting (higher number = higher priority).
+    pub fn sort_value(&self) -> u8 {
+        match self {
+            Priority::Low => 1,
+            Priority::Medium => 2,
+            Priority::High => 3,
+            Priority::Critical => 4,
+        }
+    }
+}
+
 /// The domain Task object stored in memory.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Task {
@@ -19,6 +56,9 @@ pub struct Task {
     /// Optional labels for grouping and filtering.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Task priority level.
+    #[serde(default)]
+    pub priority: Priority,
 }
 
 /// Input DTO for task creation
@@ -59,6 +99,7 @@ impl Task {
             created_at: now,
             updated_at: now,
             tags: Vec::new(),
+            priority: Priority::default(),
         }
     }
 
@@ -88,6 +129,7 @@ impl Task {
             "created_at": self.created_at.to_rfc3339(),
             "updated_at": self.updated_at.to_rfc3339(),
             "tags": self.tags,
+            "priority": self.priority,
         })
     }
 }
